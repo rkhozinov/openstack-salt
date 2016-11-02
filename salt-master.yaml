@@ -1,0 +1,90 @@
+# vim:ft=ansible:
+---
+- hosts: master
+  user: rkhozinov
+  sudo: yes
+
+  tasks:
+    - name: tcpcloud repo
+      apt_repository: repo='deb [arch=amd64] http://apt.tcpcloud.eu/nightly/ trusty main security extra tcp tcp-salt' state=present filename='tcpcloud'
+
+    - name: tcpcloud key
+      apt_key: url=http://apt.tcpcloud.eu/public.gpg keyring=/etc/apt/trusted.gpg.d/tcpcloud.gpg state=present
+
+    - name: cz mirror repo
+      apt_repository: repo='deb http://cz.archive.ubuntu.com/ubuntu/ trusty main universe multiverse' state=present filename='mirror'
+
+    - name: Update apt cache
+      apt: update_cache=yes
+
+    - name: Install packages
+      apt: name={{ item }}
+      with_items:
+        - git
+        - salt-master
+        - salt-minion
+        - reclass
+        - salt-formula-linux
+        - salt-formula-reclass
+        - salt-formula-salt
+        - salt-formula-openssh
+        - salt-formula-ntp
+        - salt-formula-git
+        - salt-formula-graphite
+        - salt-formula-collectd
+        - salt-formula-sensu
+        - salt-formula-heka
+        - salt-formula-horizon
+        - salt-formula-nginx
+        - salt-formula-memcached
+        - salt-formula-python
+        - salt-formula-supervisor
+        - salt-formula-sphinx
+
+    - name: Master configuration
+      template: src=salt-master.j2
+                dest=/etc/salt/master.d/master.conf
+                mode=0755
+
+    - name: Get https://github.com/tcpcloud/workshop-salt-model.git
+      git: repo=https://github.com/tcpcloud/workshop-salt-model.git
+           dest=/srv/salt/reclass
+           version=master
+
+    - name: /etc/reclass
+      file: path=/etc/reclass/ state=directory mode=0755
+
+    - name: /etc/reclass/reclass-config.yml
+      template: src=reclass-config.j2
+                dest=/etc/reclass/reclass-config.yml
+                mode=0755
+
+    - name: Import all Salt Formulas service metadata into your reclass subdirectory
+      file: src=/usr/share/salt-formulas/reclass/service
+            dest=/srv/salt/reclass/classes/service
+            state=link force=yes
+
+    - name: Configure the minion config directory
+      file: path=/etc/salt/minion.d state=directory mode=0755
+
+    - name: Configure the minion side of your Salt Master
+      template: src=minion.j2 dest=/etc/salt/minion.d/minion.conf mode=0755
+
+    - name: Restart Salt Master
+      service: name=salt-master state=restarted
+
+    - name: Remove minion_master.pub
+      file: path=/etc/salt/pki/minion/minion_master.pub state=absent
+
+    - name: Restart Salt Minion
+      service: name=salt-minion state=restarted
+
+    - name: Finish by generating your nodes into the /srv/salt/reclass/nodes
+      command:  salt 'cfg01*' state.sls reclass.storage
+      tags: debug
+
+    - name: Refresh the Pillar data on all your nodes
+      command: salt '*' saltutil.refresh_pillar
+      tags: debug
+
+
